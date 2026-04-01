@@ -1,0 +1,97 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: userId (UID)
+// Fields:
+//   - uid: string (required) - Firebase Auth UID
+//   - name: string (required) - Full name
+//   - email: string (required) - Email address
+//   - role: string (required, enum: ['admin', 'staff']) - User role
+//   - totalOrders: number (optional) - Total orders handled
+//   - lastLogin: timestamp (optional) - Last login time
+//
+// Collection: orders
+// Document ID: auto-generated
+// Fields:
+//   - customerName: string (required)
+//   - phoneNumber: string (required)
+//   - address: string (required)
+//   - productName: string (required)
+//   - price: number (required)
+//   - orderDate: string (required, YYYY-MM-DD)
+//   - trackingId: string (optional)
+//   - status: string (required, enum: ['pending', 'in transit', 'delivered', 'cancelled'])
+//   - createdBy: string (required) - UID of creator
+//   - createdAt: timestamp (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.email == "sadafahmad858@gmail.com";
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
+             data.uid is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             data.role in ['admin', 'staff'];
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['customerName', 'phoneNumber', 'address', 'productName', 'price', 'orderDate', 'status', 'createdBy', 'createdByName', 'createdAt']) &&
+             data.customerName is string && data.customerName.size() > 0 && data.customerName.size() < 100 &&
+             data.phoneNumber is string && data.phoneNumber.size() > 0 && data.phoneNumber.size() < 20 &&
+             data.address is string && data.address.size() > 0 && data.address.size() < 500 &&
+             data.productName is string && data.productName.size() > 0 && data.productName.size() < 200 &&
+             (!('color' in data) || (data.color is string && data.color.size() < 50)) &&
+             data.price is number && data.price >= 0 &&
+             data.orderDate is string && data.orderDate.matches("^\\d{2}/\\d{2}/\\d{4}$") &&
+             data.status in ['pending', 'in transit', 'delivered', 'cancelled'] &&
+             data.createdBy is string &&
+             data.createdByName is string &&
+             (data.createdAt is timestamp || data.createdAt is string || data.createdAt == request.time);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidOrder(request.resource.data);
+      allow update: if isAuthenticated() && isValidOrder(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+      allow update: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+  }
+}

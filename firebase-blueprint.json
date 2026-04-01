@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a staff member or admin in the system.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "format": "email", "description": "Email address" },
+        "role": { "type": "string", "enum": ["admin", "staff"], "description": "User role" },
+        "totalOrders": { "type": "integer", "description": "Total number of orders handled by this user" },
+        "lastLogin": { "type": "string", "format": "date-time", "description": "Last login timestamp" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Represents an eyeglass order.",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string", "description": "Name of the customer" },
+        "phoneNumber": { "type": "string", "description": "Customer phone number" },
+        "address": { "type": "string", "description": "Delivery address" },
+        "productName": { "type": "string", "description": "Name of the eyeglass product" },
+        "price": { "type": "number", "description": "Order price" },
+        "orderDate": { "type": "string", "format": "date", "description": "Date of the order" },
+        "trackingId": { "type": "string", "description": "Steadfast tracking ID" },
+        "status": { "type": "string", "enum": ["pending", "in transit", "delivered", "cancelled"], "description": "Order status" },
+        "createdBy": { "type": "string", "description": "UID of the user who created the order" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp when the order was created" }
+      },
+      "required": ["customerName", "phoneNumber", "address", "productName", "price", "orderDate", "status", "createdBy"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile data"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Order records"
+    }
+  }
+}
