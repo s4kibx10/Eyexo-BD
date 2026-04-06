@@ -12,6 +12,13 @@ export interface UserProfile {
 
 export type OrderStatus = 'pending' | 'in transit' | 'delivered' | 'cancelled';
 
+export interface EyePower {
+  sph: string;
+  cyl: string;
+  axis: string;
+  add: string;
+}
+
 export interface Order {
   id?: string;
   customerName: string;
@@ -25,7 +32,14 @@ export interface Order {
   status: OrderStatus;
   createdBy: string;
   createdByName: string;
-  createdAt: string;
+  createdAt: any;
+  lastEditedBy?: string;
+  lastEditedByName?: string;
+  lastEditedAt?: any;
+  eyePower?: {
+    re: EyePower;
+    le: EyePower;
+  };
 }
 
 export interface Notification {

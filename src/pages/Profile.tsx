@@ -14,6 +14,7 @@ const Profile: React.FC = () => {
   const { profile, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [performanceData, setPerformanceData] = useState<any[]>([]);
+  const [performanceTrend, setPerformanceTrend] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editPhoto, setEditPhoto] = useState('');
@@ -28,11 +29,54 @@ const Profile: React.FC = () => {
   }, [profile]);
 
   useEffect(() => {
-    // Mock performance data
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-    const data = months.map(m => ({ name: m, value: Math.floor(Math.random() * 50) + 10 }));
-    setPerformanceData(data);
-  }, []);
+    if (!profile) return;
+
+    const fetchPerformance = async () => {
+      try {
+        const ordersRef = collection(db, 'orders');
+        const q = query(ordersRef, where('createdBy', '==', profile.uid));
+        const snapshot = await getDocs(q);
+        const allOrders = snapshot.docs.map(doc => doc.data());
+        
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const yesterdayStart = new Date(todayStart);
+        yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+
+        const getValidDate = (createdAt: any) => {
+          if (!createdAt) return new Date(0);
+          if (typeof createdAt.toDate === 'function') return createdAt.toDate();
+          return new Date(createdAt);
+        };
+
+        const todayOrders = allOrders.filter(o => getValidDate(o.createdAt) >= todayStart);
+        const yesterdayOrders = allOrders.filter(o => {
+          const d = getValidDate(o.createdAt);
+          return d >= yesterdayStart && d < todayStart;
+        });
+
+        const todayCount = todayOrders.length;
+        const yesterdayCount = yesterdayOrders.length;
+        
+        let trend = 0;
+        if (yesterdayCount > 0) {
+          trend = Math.round(((todayCount - yesterdayCount) / yesterdayCount) * 100);
+        } else if (todayCount > 0) {
+          trend = 100;
+        }
+        setPerformanceTrend(trend);
+
+        // Mock chart data based on actual count if possible, or just keep mock for visual
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+        const data = months.map(m => ({ name: m, value: Math.floor(Math.random() * 50) + 10 }));
+        setPerformanceData(data);
+      } catch (error) {
+        console.error("Error fetching performance:", error);
+      }
+    };
+
+    fetchPerformance();
+  }, [profile]);
 
   const handleLogout = async () => {
     try {
@@ -274,9 +318,9 @@ const Profile: React.FC = () => {
         </div>
         <div className="bg-surface-container-low p-6 rounded-3xl space-y-2">
           <p className="text-[10px] font-bold text-outline tracking-widest uppercase">Performance</p>
-          <div className="flex items-center gap-1 text-green-600 font-bold">
-            <TrendingUp size={16} />
-            <span>+12%</span>
+          <div className={`flex items-center gap-1 font-bold ${performanceTrend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <TrendingUp size={16} className={performanceTrend < 0 ? 'rotate-180' : ''} />
+            <span>{performanceTrend > 0 ? '+' : ''}{performanceTrend}%</span>
           </div>
         </div>
       </div>

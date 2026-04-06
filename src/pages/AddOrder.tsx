@@ -4,14 +4,22 @@ import { collection, addDoc, doc, updateDoc, increment, serverTimestamp } from '
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { Order, OrderStatus } from '../types';
-import { User, Phone, MapPin, Layers, Calendar, Truck, Send, Microscope } from 'lucide-react';
+import { User, Phone, MapPin, Layers, Calendar, Truck, Send, Microscope, Eye, Upload, Sparkles, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
+import { GoogleGenAI, Type } from "@google/genai";
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 const AddOrder: React.FC = () => {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
   
   const [sendToSteadfast, setSendToSteadfast] = useState(true);
   
@@ -24,7 +32,111 @@ const AddOrder: React.FC = () => {
     price: '',
     trackingId: '',
     note: '',
+    eyePower: {
+      re: { sph: '', cyl: '', axis: '', add: '' },
+      le: { sph: '', cyl: '', axis: '', add: '' }
+    }
   });
+
+  const handleAiScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAiLoading(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Data = (reader.result as string).split(',')[1];
+        
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const response = await ai.models.generateContent({
+          model: "gemini-3.1-pro-preview",
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: file.type,
+                  data: base64Data,
+                },
+              },
+              {
+                text: `You are an expert Optometrist Assistant. Your task is to extract eye prescription details from the provided image with 100% accuracy.
+                
+                Look for:
+                - Right Eye (often labeled as RE, OD, or Oculus Dexter)
+                - Left Eye (often labeled as LE, OS, or Oculus Sinister)
+                - SPH (Sphere): Look for values like +2.50, -1.25, etc.
+                - CYL (Cylinder): Look for values like -0.50, +1.00, etc.
+                - AXIS: Look for values between 0 and 180.
+                - ADD (Addition): Look for values like +2.00, +2.50.
+                
+                Rules:
+                1. Extract the values EXACTLY as they appear in the image.
+                2. Include the plus (+) or minus (-) signs if they are present.
+                3. If a value is missing or not applicable (like a blank space or a dash), return an empty string "".
+                4. Do not guess or hallucinate values. If you are unsure, leave it empty.
+                
+                Return the result as a JSON object.`,
+              },
+            ],
+          },
+          config: {
+            systemInstruction: "You are a highly precise medical data extraction tool. Accuracy is your top priority. Extract eye prescription data exactly as written.",
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                re: {
+                  type: Type.OBJECT,
+                  properties: {
+                    sph: { type: Type.STRING },
+                    cyl: { type: Type.STRING },
+                    axis: { type: Type.STRING },
+                    add: { type: Type.STRING },
+                  },
+                },
+                le: {
+                  type: Type.OBJECT,
+                  properties: {
+                    sph: { type: Type.STRING },
+                    cyl: { type: Type.STRING },
+                    axis: { type: Type.STRING },
+                    add: { type: Type.STRING },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        const result = JSON.parse(response.text);
+        setFormData(prev => ({
+          ...prev,
+          eyePower: {
+            re: {
+              sph: result.re?.sph || '',
+              cyl: result.re?.cyl || '',
+              axis: result.re?.axis || '',
+              add: result.re?.add || ''
+            },
+            le: {
+              sph: result.le?.sph || '',
+              cyl: result.le?.cyl || '',
+              axis: result.le?.axis || '',
+              add: result.le?.add || ''
+            }
+          }
+        }));
+        toast.success('Prescription scanned successfully!');
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('AI Scan Error:', error);
+      toast.error('Failed to scan prescription. Please enter manually.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,17 +156,30 @@ const AddOrder: React.FC = () => {
           return;
         }
 
+        const codAmount = Math.round(parseFloat(formData.price));
+        if (isNaN(codAmount) || codAmount <= 0) {
+          toast.error('Steadfast requires a valid Price (COD amount) as a whole number greater than 0');
+          setLoading(false);
+          return;
+        }
+
+        if (formData.address.trim().length < 10) {
+          toast.error('Steadfast requires a more detailed address (at least 10 characters)');
+          setLoading(false);
+          return;
+        }
+
         try {
           const response = await fetch('/api/steadfast/create-order', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               invoice: `OPT-${Date.now()}`,
-              recipient_name: formData.customerName,
+              recipient_name: formData.customerName.trim(),
               recipient_phone: cleanPhone,
-              recipient_address: formData.address,
-              cod_amount: parseFloat(formData.price),
-              note: formData.note || 'Optical Order'
+              recipient_address: formData.address.trim(),
+              cod_amount: codAmount,
+              note: (formData.note || 'Optical Order').substring(0, 255)
             })
           });
 
@@ -64,13 +189,18 @@ const AddOrder: React.FC = () => {
             toast.success(`Steadfast Parcel Created: ${finalTrackingId}`);
           } else {
             console.error("Steadfast API Error:", result);
-            const errorMsg = result.message || result.error || 'Check API credentials';
+            const errorMsg = result.message || result.error || 'Check your Steadfast API Key/Secret in Settings';
             toast.error(`Steadfast Error: ${errorMsg}`);
-            // We continue saving the order in our DB even if Steadfast fails, but with a warning
+            // We stop here if Steadfast is mandatory, or continue if it's optional.
+            // Given the user's request, let's stop if Steadfast fails to avoid inconsistent states.
+            setLoading(false);
+            return;
           }
         } catch (err) {
           console.error("Steadfast Fetch Error:", err);
           toast.error('Failed to connect to Steadfast API');
+          setLoading(false);
+          return;
         }
       }
 
@@ -251,6 +381,161 @@ const AddOrder: React.FC = () => {
                 className="bg-transparent border-none focus:ring-0 w-full text-on-surface placeholder:text-outline-variant font-medium"
                 placeholder="e.g. Fragile, Handle with care"
               />
+            </div>
+          </div>
+
+          {/* Eye Power Section */}
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-primary uppercase tracking-widest flex items-center gap-2">
+                <Eye className="w-4 h-4" /> Eye Power
+              </h4>
+              <div className="relative">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAiScan}
+                  className="hidden"
+                  id="prescription-upload"
+                  disabled={aiLoading}
+                />
+                <label
+                  htmlFor="prescription-upload"
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer",
+                    aiLoading 
+                      ? "bg-surface-container-highest text-outline cursor-not-allowed" 
+                      : "bg-primary/10 text-primary hover:bg-primary/20"
+                  )}
+                >
+                  {aiLoading ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3 h-3" />
+                  )}
+                  {aiLoading ? 'Scanning...' : 'Scan Prescription'}
+                </label>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Right Eye */}
+              <div className="p-4 bg-surface-container-highest rounded-xl space-y-4">
+                <div className="text-[10px] font-bold text-outline uppercase tracking-widest border-b border-outline/10 pb-2">Right Eye (RE)</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-primary uppercase">SPH</label>
+                    <input
+                      type="text"
+                      value={formData.eyePower.re.sph}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        eyePower: { ...formData.eyePower, re: { ...formData.eyePower.re, sph: e.target.value } }
+                      })}
+                      className="w-full bg-surface-container-lowest border-none rounded-lg px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-primary/30"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-primary uppercase">CYL</label>
+                    <input
+                      type="text"
+                      value={formData.eyePower.re.cyl}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        eyePower: { ...formData.eyePower, re: { ...formData.eyePower.re, cyl: e.target.value } }
+                      })}
+                      className="w-full bg-surface-container-lowest border-none rounded-lg px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-primary/30"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-primary uppercase">AXIS</label>
+                    <input
+                      type="text"
+                      value={formData.eyePower.re.axis}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        eyePower: { ...formData.eyePower, re: { ...formData.eyePower.re, axis: e.target.value } }
+                      })}
+                      className="w-full bg-surface-container-lowest border-none rounded-lg px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-primary/30"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-primary uppercase">ADD</label>
+                    <input
+                      type="text"
+                      value={formData.eyePower.re.add}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        eyePower: { ...formData.eyePower, re: { ...formData.eyePower.re, add: e.target.value } }
+                      })}
+                      className="w-full bg-surface-container-lowest border-none rounded-lg px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-primary/30"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Left Eye */}
+              <div className="p-4 bg-surface-container-highest rounded-xl space-y-4">
+                <div className="text-[10px] font-bold text-outline uppercase tracking-widest border-b border-outline/10 pb-2">Left Eye (LE)</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-primary uppercase">SPH</label>
+                    <input
+                      type="text"
+                      value={formData.eyePower.le.sph}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        eyePower: { ...formData.eyePower, le: { ...formData.eyePower.le, sph: e.target.value } }
+                      })}
+                      className="w-full bg-surface-container-lowest border-none rounded-lg px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-primary/30"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-primary uppercase">CYL</label>
+                    <input
+                      type="text"
+                      value={formData.eyePower.le.cyl}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        eyePower: { ...formData.eyePower, le: { ...formData.eyePower.le, cyl: e.target.value } }
+                      })}
+                      className="w-full bg-surface-container-lowest border-none rounded-lg px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-primary/30"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-primary uppercase">AXIS</label>
+                    <input
+                      type="text"
+                      value={formData.eyePower.le.axis}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        eyePower: { ...formData.eyePower, le: { ...formData.eyePower.le, axis: e.target.value } }
+                      })}
+                      className="w-full bg-surface-container-lowest border-none rounded-lg px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-primary/30"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-primary uppercase">ADD</label>
+                    <input
+                      type="text"
+                      value={formData.eyePower.le.add}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        eyePower: { ...formData.eyePower, le: { ...formData.eyePower.le, add: e.target.value } }
+                      })}
+                      className="w-full bg-surface-container-lowest border-none rounded-lg px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-primary/30"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

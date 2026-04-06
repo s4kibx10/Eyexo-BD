@@ -75,6 +75,34 @@ const Orders: React.FC = () => {
     cancelled: 'CANCELLED',
   };
 
+  const formatDateTime = (createdAt: any) => {
+    if (!createdAt) return 'N/A';
+    
+    try {
+      let date: Date;
+      if (typeof createdAt.toDate === 'function') {
+        date = createdAt.toDate();
+      } else if (createdAt.seconds) {
+        date = new Date(createdAt.seconds * 1000);
+      } else {
+        date = new Date(createdAt);
+      }
+
+      if (isNaN(date.getTime())) return 'N/A';
+
+      return date.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (e) {
+      return 'N/A';
+    }
+  };
+
   return (
     <div className="space-y-7 pb-10">
       {/* Hero Search Section */}
@@ -193,9 +221,15 @@ const Orders: React.FC = () => {
                 <div className="space-y-1">
                   <h3 className="text-sm font-semibold text-on-surface">{order.customerName}</h3>
                   <p className="text-xs text-outline font-headline tracking-wide">{order.phoneNumber}</p>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <User className="w-3 h-3 text-primary" />
-                    <span className="text-[10px] font-medium text-on-surface-variant">Created by: {order.createdByName || 'Unknown'}</span>
+                  <div className="flex flex-col gap-1 mt-1">
+                    <div className="flex items-center gap-1.5">
+                      <User className="w-3 h-3 text-primary" />
+                      <span className="text-[10px] font-medium text-on-surface-variant">Staff: {order.createdByName || 'Unknown'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-3 h-3 text-primary" />
+                      <span className="text-[10px] font-medium text-on-surface-variant">{formatDateTime(order.createdAt)}</span>
+                    </div>
                   </div>
                 </div>
                 <span className={cn(

@@ -22,12 +22,16 @@ async function startServer() {
 
   // Steadfast API Integration
   const getSteadfastHeaders = () => {
-    const apiKey = process.env.STEADFAST_API_KEY;
-    const secretKey = process.env.STEADFAST_SECRET_KEY;
+    const apiKey = (process.env.STEADFAST_API_KEY || "").trim();
+    const secretKey = (process.env.STEADFAST_SECRET_KEY || "").trim();
 
     if (!apiKey || !secretKey) {
+      console.error("CRITICAL: Steadfast API Key or Secret Key is missing!");
       throw new Error("Steadfast API Key or Secret Key is missing in environment variables.");
     }
+
+    // Log partial keys for debugging (safe)
+    console.log(`Using Steadfast API Key starting with: ${apiKey.substring(0, 4)}...`);
 
     return {
       "Api-Key": apiKey,
@@ -48,41 +52,55 @@ async function startServer() {
         note
       } = req.body;
 
-      console.log("Sending to Steadfast:", {
-        invoice,
-        recipient_name,
-        recipient_phone,
-        recipient_address,
-        cod_amount,
-        note
-      });
+      // Validate inputs
+      if (!invoice || !recipient_name || !recipient_phone || !recipient_address) {
+        return res.status(400).json({ error: "Missing required fields for Steadfast order." });
+      }
+
+      // Sanitize data: Steadfast can be picky about special characters in names/addresses
+      const sanitize = (str: string) => str.replace(/[^\w\s\-\,\.\(\)\/]/gi, '').trim();
+
+      const payload = {
+        invoice: String(invoice),
+        recipient_name: sanitize(String(recipient_name)),
+        recipient_phone: String(recipient_phone).replace(/\D/g, ''),
+        recipient_address: sanitize(String(recipient_address)),
+        cod_amount: Math.round(Number(cod_amount)),
+        note: sanitize(String(note || "Optical Order")).substring(0, 255)
+      };
+
+      console.log("Sending to Steadfast Payload:", payload);
 
       const response = await axios.post(
         `${STEADFAST_API_URL}/create_order`,
-        {
-          invoice,
-          recipient_name,
-          recipient_phone,
-          recipient_address,
-          cod_amount,
-          note
-        },
+        payload,
         { 
           headers: getSteadfastHeaders(),
-          timeout: 10000 // 10 seconds timeout
+          timeout: 20000, // Increase to 20 seconds
+          validateStatus: (status) => status < 500 // Catch 500s manually for better logging
         }
       );
 
-      console.log("Steadfast Response:", response.data);
+      if (response.status >= 400) {
+        console.error("Steadfast API returned error status:", response.status, response.data);
+        return res.status(response.status).json(response.data);
+      }
+
+      console.log("Steadfast Success Response:", response.data);
       res.json(response.data);
     } catch (error: any) {
       const errorData = error.response?.data || error.message;
-      console.error("Steadfast Create Order Error:", errorData);
+      const statusCode = error.response?.status || 500;
       
-      // If Steadfast returns a 500 with "Server Error", it's often due to invalid keys or malformed data
-      res.status(error.response?.status || 500).json({
-        error: "Failed to create Steadfast order",
-        message: typeof errorData === 'object' ? errorData.message : errorData,
+      console.error("Steadfast Create Order Exception:", {
+        status: statusCode,
+        message: error.message,
+        data: errorData
+      });
+      
+      res.status(statusCode).json({
+        error: "Steadfast API Error",
+        message: typeof errorData === 'object' ? (errorData.message || errorData.error) : errorData,
         details: errorData
       });
     }

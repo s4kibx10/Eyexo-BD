@@ -15,7 +15,7 @@ const Dashboard: React.FC = () => {
     month: 0,
     delivered: 0,
     pending: 0,
-    todayTrend: 12,
+    todayTrend: 0,
   });
   const [dailyData, setDailyData] = useState<any[]>([]);
   const [performanceData, setPerformanceData] = useState<any[]>([]);
@@ -42,12 +42,28 @@ const Dashboard: React.FC = () => {
       const delivered = allOrders.filter(o => o.status === 'delivered');
       const pending = allOrders.filter(o => o.status === 'pending');
 
+      // Calculate trend (Today vs Yesterday)
+      const yesterdayStart = startOfDay(subDays(new Date(), 1));
+      const yesterdayOrders = allOrders.filter(o => {
+        const d = getValidDate(o.createdAt);
+        return d >= yesterdayStart && d < todayStart;
+      });
+
+      const todayCount = todayOrders.length;
+      const yesterdayCount = yesterdayOrders.length;
+      let trend = 0;
+      if (yesterdayCount > 0) {
+        trend = Math.round(((todayCount - yesterdayCount) / yesterdayCount) * 100);
+      } else if (todayCount > 0) {
+        trend = 100;
+      }
+
       setStats({
-        today: todayOrders.length,
+        today: todayCount,
         month: monthOrders.length,
         delivered: delivered.length,
         pending: pending.length,
-        todayTrend: 12, // Mock trend
+        todayTrend: trend,
       });
 
       // Daily Volume Chart Data (last 7 days)
@@ -91,7 +107,7 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const statCards = [
-    { label: 'TODAY', value: stats.today, icon: Calendar, trend: `+${stats.todayTrend}%`, color: 'text-primary' },
+    { label: 'TODAY', value: stats.today, icon: Calendar, trend: stats.todayTrend !== 0 ? `${stats.todayTrend > 0 ? '+' : ''}${stats.todayTrend}%` : null, color: 'text-primary' },
     { label: 'MONTH', value: stats.month > 1000 ? `${(stats.month / 1000).toFixed(1)}k` : stats.month, icon: TrendingUp, color: 'text-orange-500' },
     { label: 'DELIVERED', value: stats.delivered, icon: CheckCircle2, color: 'text-primary' },
     { label: 'PENDING', value: stats.pending, icon: Clock, color: 'text-primary' },
@@ -118,7 +134,7 @@ const Dashboard: React.FC = () => {
             <div className="flex justify-between items-start">
               <stat.icon className={stat.color} size={20} />
               {stat.trend && (
-                <span className="bg-blue-50 text-primary text-[10px] font-bold px-2 py-1 rounded-full">
+                <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${stats.todayTrend >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                   {stat.trend}
                 </span>
               )}
