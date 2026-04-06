@@ -8,6 +8,8 @@ interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
+  globalLoading: boolean;
+  setGlobalLoading: (loading: boolean) => void;
   isAdmin: boolean;
 }
 
@@ -15,6 +17,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   loading: true,
+  globalLoading: false,
+  setGlobalLoading: () => {},
   isAdmin: false,
 });
 
@@ -24,6 +28,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [globalLoading, setGlobalLoading] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -75,6 +80,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     profile,
     loading,
+    globalLoading,
+    setGlobalLoading,
     isAdmin: profile?.role === 'admin',
   };
 

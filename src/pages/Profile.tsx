@@ -4,11 +4,12 @@ import { signOut } from 'firebase/auth';
 import { collection, query, where, getDocs, orderBy, doc, updateDoc } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, Download, Settings, ShieldCheck, User as UserIcon, TrendingUp, Camera, X, Check, Loader2 } from 'lucide-react';
+import { LogOut, Download, Settings, ShieldCheck, User as UserIcon, TrendingUp, Camera, X, Check, Loader2, Trash2, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { json2csv } from 'json-2-csv';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
+import { writeBatch } from 'firebase/firestore';
 
 const Profile: React.FC = () => {
   const { profile, isAdmin } = useAuth();
@@ -19,6 +20,8 @@ const Profile: React.FC = () => {
   const [editName, setEditName] = useState('');
   const [editPhoto, setEditPhoto] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -152,6 +155,32 @@ const Profile: React.FC = () => {
     } catch (error) {
       console.error(error);
       toast.error('Failed to export orders');
+    }
+  };
+
+  const resetSystem = async () => {
+    if (!isAdmin) return;
+    setIsResetting(true);
+    try {
+      const batch = writeBatch(db);
+      
+      // Clear Orders
+      const ordersSnap = await getDocs(collection(db, 'orders'));
+      ordersSnap.docs.forEach(doc => batch.delete(doc.ref));
+      
+      // Clear Notifications
+      const notifsSnap = await getDocs(collection(db, 'notifications'));
+      notifsSnap.docs.forEach(doc => batch.delete(doc.ref));
+      
+      await batch.commit();
+      toast.success('System reset successful. All data cleared.');
+      setShowResetConfirm(false);
+      window.location.reload(); // Refresh to clear state
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to reset system');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -365,6 +394,17 @@ const Profile: React.FC = () => {
           <Download size={20} />
           Export Orders to CSV
         </button>
+
+        {isAdmin && (
+          <button 
+            onClick={() => setShowResetConfirm(true)}
+            className="w-full flex items-center justify-center gap-3 py-5 rounded-full bg-error/5 text-error border border-error/20 font-headline font-bold active:scale-[0.98] transition-transform"
+          >
+            <Trash2 size={20} />
+            Danger: Reset All Data
+          </button>
+        )}
+
         <button 
           onClick={handleLogout}
           className="w-full flex items-center justify-center gap-3 py-5 rounded-full bg-error/10 text-error font-headline font-bold active:scale-[0.98] transition-transform"
@@ -373,6 +413,56 @@ const Profile: React.FC = () => {
           Authenticate Sign Out
         </button>
       </div>
+
+      {/* Reset Confirmation Modal */}
+      <AnimatePresence>
+        {showResetConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowResetConfirm(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-sm bg-surface-container-lowest rounded-[2.5rem] p-8 shadow-2xl text-center space-y-6"
+            >
+              <div className="w-20 h-20 bg-error/10 rounded-full flex items-center justify-center mx-auto">
+                <AlertTriangle size={40} className="text-error" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xl font-headline font-bold text-on-surface">System Reset</h3>
+                <p className="text-sm text-outline leading-relaxed">
+                  This will permanently delete <span className="font-bold text-error">ALL ORDERS</span> and <span className="font-bold text-error">ALL NOTIFICATIONS</span>. This action cannot be undone.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowResetConfirm(false)}
+                  className="flex-1 py-4 rounded-full bg-surface-container-high text-on-surface font-headline font-bold"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={resetSystem}
+                  disabled={isResetting}
+                  className="flex-1 py-4 rounded-full bg-error text-on-error font-headline font-bold flex items-center justify-center gap-2"
+                >
+                  {isResetting ? (
+                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-on-error border-t-transparent"></div>
+                  ) : (
+                    'Confirm Reset'
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Developer Attribution */}
       <div className="pt-8 text-center">

@@ -20,6 +20,11 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
+  // Health Check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", env: process.env.NODE_ENV });
+  });
+
   // Steadfast API Integration
   const getSteadfastHeaders = () => {
     const apiKey = (process.env.STEADFAST_API_KEY || "").trim();
@@ -144,7 +149,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.resolve(__dirname, "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
